@@ -9,3 +9,9 @@ venv/
 *.egg-info/
 .pytest_cache/
 .DS_Store
+
+# Internal agent working documents — not for public consumption
+.agent/
+DEEPSEEK_INSTRUCTIONS.md
+CODEX_REVIEW_INSTRUCTIONS.md
+consolidated-agentic-pattern-guide.md

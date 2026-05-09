@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for bare except clauses
+        run: |
+          BARE=$(grep -rn '^[[:space:]]*except[[:space:]]*:' --include='*.py' . || true)
+          if [ -n "$BARE" ]; then
+            echo "ERROR: Bare except: found (must specify exception type):"
+            echo "$BARE"
+            exit 1
+          fi
+          echo "OK — no bare except:"
+
+      - name: Check for hardcoded /Users/ paths
+        run: |
+          FOUND=$(grep -rn '/Users/' --include='*.py' --include='*.sh' scripts/ eval/ 2>/dev/null || true)
+          if [ -n "$FOUND" ]; then
+            echo "ERROR: Hardcoded /Users/ paths in scripts/:"
+            echo "$FOUND"
+            exit 1
+          fi
+          echo "OK — no hardcoded /Users/ paths"
+
+      - name: Check for exposed secrets
+        run: |
+          SECRETS=$(grep -rnE 'sk-[A-Za-z0-9]{20,}' --include='*.py' --include='*.sh' --include='*.json' scripts/ eval/ tests/ 2>/dev/null || true)
+          if [ -n "$SECRETS" ]; then
+            echo "ERROR: Potential API keys exposed in source files:"
+            echo "$SECRETS"
+            exit 1
+          fi
+          echo "OK — no exposed secrets detected"
+
+  test:
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m pytest tests/ -v
+
+  demo-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: CLI negative path — empty file validate
+        run: |
+          OUTPUT=$(python scripts/validate_dataset.py /dev/null 2>&1) && { echo "FAIL: expected non-zero exit"; exit 1; }
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "No valid records found" || { echo "FAIL: wrong error message"; exit 1; }
+          echo "OK — empty file correctly exits non-zero with expected message"
+
+      - name: CLI negative path — out-of-range split
+        run: |
+          OUTPUT=$(python scripts/export_finetune.py data/sample_instructions.jsonl --split 0.5 2>&1) && { echo "FAIL: expected non-zero exit"; exit 1; }
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "must be between 0.0 and 0.3" || { echo "FAIL: wrong error message"; exit 1; }
+          echo "OK — out-of-range split correctly exits non-zero with expected message"
+
+      - name: Run demo smoke test
+        run: bash scripts/run_demo.sh

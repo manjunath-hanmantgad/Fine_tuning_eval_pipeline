@@ -1,0 +1,52 @@
+============================================
+ Fine-Tuning Evaluation Pipeline Demo
+============================================
+
+--- Step 1: Validate Dataset ---
+
+=== Dataset Validation Report ===
+Total records:      25
+Parse errors:       0
+Duplicate groups:   0
+Validation errors:  0
+Status:             PASS
+
+--- Step 2: Dataset Diagnostics ---
+INFO: Report written to outputs/diagnostics_20260509_193852.md
+
+Dataset:       data/sample_instructions.jsonl
+Records:       25
+Est. tokens:   2,277
+Quality flags: 0
+
+--- Step 3: Export (OpenAI format) ---
+INFO: Wrote 25 records to outputs/export_openai_20260509_193852.jsonl
+Exported 25 records → outputs/export_openai_20260509_193852.jsonl
+
+--- Step 4: Export (Anthropic format) ---
+INFO: Wrote 25 records to outputs/export_anthropic_20260509_193852.jsonl
+Exported 25 records → outputs/export_anthropic_20260509_193852.jsonl
+
+--- Step 5: Export with Train/Val Split (20%) ---
+INFO: Wrote 20 records to outputs/export_openai_20260509_193852_train.jsonl
+INFO: Wrote 5 records to outputs/export_openai_20260509_193852_val.jsonl
+Train: 20 records → outputs/export_openai_20260509_193852_train.jsonl
+Val:   5 records → outputs/export_openai_20260509_193852_val.jsonl
+
+============================================
+ Demo Complete
+============================================
+
+Generated files in outputs/
+
+  Input dataset:    data/sample_instructions.jsonl (25 records)
+  Token estimate:   2,277
+
+  Outputs:
+    - export_anthropic_20260509_193852.jsonl
+    - export_openai_20260509_193852_train.jsonl
+    - export_openai_20260509_193852_val.jsonl
+    - export_openai_20260509_193852.jsonl
+    - diagnostics_20260509_193852.md
+
+Pipeline finished successfully.
