@@ -6,6 +6,7 @@ from scripts.export_finetune import (
     to_anthropic_format,
     to_alpaca_format,
     load_records,
+    deduplicate_records,
 )
 
 
@@ -147,3 +148,26 @@ def test_export_split_negative_refused(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc_info:
         export_main()
     assert exc_info.value.code == 1
+
+
+def test_deduplicate_records_removes_duplicates():
+    records = [
+        {"instruction": "What is Python?", "input": "", "response": "A language."},
+        {"instruction": "What is Python?", "input": "", "response": "Duplicate."},
+        {"instruction": "Explain OOP.", "input": "", "response": "Paradigm."},
+        {"instruction": "What is Python?", "input": "with context", "response": "Different input."},
+    ]
+    deduped = deduplicate_records(records)
+    assert len(deduped) == 3
+    assert deduped[0]["response"] == "A language."
+    assert deduped[1]["response"] == "Paradigm."
+    assert deduped[2]["response"] == "Different input."
+
+
+def test_deduplicate_records_no_duplicates():
+    records = [
+        {"instruction": "What is Python?", "input": "", "response": "A language."},
+        {"instruction": "Explain OOP.", "input": "", "response": "Paradigm."},
+    ]
+    deduped = deduplicate_records(records)
+    assert len(deduped) == 2

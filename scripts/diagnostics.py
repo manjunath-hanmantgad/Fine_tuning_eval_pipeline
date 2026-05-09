@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate a diagnostics report for a JSONL instruction dataset."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -18,6 +20,45 @@ OUTPUTS_DIR = Path("outputs")
 def estimate_tokens(text: str) -> int:
     """Rough token estimate using word count × 1.3 (no tiktoken required)."""
     return max(1, round(len(text.split()) * 1.3))
+
+
+def _get_token_counter():
+    """Return a function that counts tokens in a string.
+
+    Tries tiktoken (cl100k_base) first; falls back to heuristic word_count × 1.3.
+    """
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        log.info("Token estimation: tiktoken (exact)")
+        return lambda text: len(enc.encode(text))
+    except ImportError:
+        log.info("Token estimation: heuristic (word_count × 1.3)")
+        return lambda text: max(1, round(len(text.split()) * 1.3))
+
+
+TOKEN_COUNTER = None  # lazy singleton
+
+
+def count_tokens(text: str) -> int:
+    global TOKEN_COUNTER
+    if TOKEN_COUNTER is None:
+        TOKEN_COUNTER = _get_token_counter()
+    return TOKEN_COUNTER(text)
+
+
+def categorize_instruction(text: str) -> str:
+    """Classify an instruction into a category using simple keyword matching."""
+    lower = text.lower()
+    if any(kw in lower for kw in ("python", "function", "code", "class", "sql")):
+        return "code"
+    if any(kw in lower for kw in ("write", "create", "draft")):
+        return "writing"
+    if any(kw in lower for kw in ("explain", "what is", "describe")):
+        return "explanation"
+    if any(kw in lower for kw in ("summarize", "summary")):
+        return "summarization"
+    return "general"
 
 
 def field_stats(values: list[int]) -> dict:
@@ -58,14 +99,19 @@ def run_diagnostics(records: list[dict]) -> dict:
     input_lens = [len(r["input"]) for r in records if r.get("input", "").strip()]
 
     total_tokens = sum(
-        estimate_tokens(r.get("instruction", ""))
-        + estimate_tokens(r.get("input", ""))
-        + estimate_tokens(r.get("response", ""))
+        count_tokens(r.get("instruction", ""))
+        + count_tokens(r.get("input", ""))
+        + count_tokens(r.get("response", ""))
         for r in records
     )
 
     has_input = sum(1 for r in records if r.get("input", "").strip())
     has_system = sum(1 for r in records if r.get("system", "").strip())
+
+    category_counts: dict[str, int] = {}
+    for r in records:
+        cat = categorize_instruction(r.get("instruction", ""))
+        category_counts[cat] = category_counts.get(cat, 0) + 1
 
     quality_flags: list[str] = []
     for i, r in enumerate(records, 1):
@@ -87,6 +133,7 @@ def run_diagnostics(records: list[dict]) -> dict:
         "instruction_length": field_stats(instruction_lens),
         "response_length": field_stats(response_lens),
         "input_length": field_stats(input_lens) if input_lens else {},
+        "category_distribution": dict(sorted(category_counts.items())),
         "quality_flags": quality_flags,
         "flag_count": len(quality_flags),
     }
@@ -117,6 +164,12 @@ def write_report(result: dict, output_path: Path) -> None:
         lines += ["", "## Context Input Length (chars)"]
         for k, v in result["input_length"].items():
             lines.append(f"- {k}: {v}")
+
+    if result.get("category_distribution"):
+        lines += ["", "## Category Distribution"]
+        for cat, count in result["category_distribution"].items():
+            pct = round(count / result["total_records"] * 100, 1)
+            lines.append(f"- {cat}: {count} ({pct}%)")
 
     lines += ["", f"## Quality Flags ({result['flag_count']} total)"]
     if result["quality_flags"]:

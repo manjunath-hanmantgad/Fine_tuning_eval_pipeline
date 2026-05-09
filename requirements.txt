@@ -1,2 +1,5 @@
 anthropic>=0.40.0
 pytest>=8.0.0
+# tiktoken  # optional: enables exact token counting (pip install tiktoken)
+# azure-storage-blob  # optional: for azure/upload_dataset.py
+# azure-ai-ml         # optional: for azure/deploy_endpoint.py

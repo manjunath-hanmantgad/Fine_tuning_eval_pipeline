@@ -1,6 +1,9 @@
 import pytest
 from pathlib import Path
-from scripts.diagnostics import run_diagnostics, estimate_tokens, field_stats, load_records
+from scripts.diagnostics import (
+    run_diagnostics, estimate_tokens, field_stats, load_records,
+    categorize_instruction,
+)
 import json
 
 
@@ -100,3 +103,31 @@ def test_load_records_blank_file_returns_empty(tmp_path):
     f.write_text("\n\n\n\n")
     loaded = load_records(f)
     assert loaded == []
+
+
+def test_categorize_instruction_writing():
+    assert categorize_instruction("Write a short poem") == "writing"
+    assert categorize_instruction("Create a marketing plan") == "writing"
+    assert categorize_instruction("Draft an email") == "writing"
+
+
+def test_categorize_instruction_explanation():
+    assert categorize_instruction("Explain recursion") == "explanation"
+    assert categorize_instruction("What is machine learning") == "explanation"
+    assert categorize_instruction("Describe the solar system") == "explanation"
+
+
+def test_categorize_instruction_code():
+    assert categorize_instruction("Fix this Python code") == "code"
+    assert categorize_instruction("Explain SQL joins") == "code"
+    assert categorize_instruction("Optimize this function") == "code"
+
+
+def test_categorize_instruction_summarization():
+    assert categorize_instruction("Summarize this article") == "summarization"
+    assert categorize_instruction("Give me a summary") == "summarization"
+
+
+def test_categorize_instruction_general():
+    assert categorize_instruction("How do I cook pasta") == "general"
+    assert categorize_instruction("Tell me a joke") == "general"

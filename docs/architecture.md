@@ -76,7 +76,7 @@ graph TB
 
     subgraph eval ["eval/  (requires ANTHROPIC_API_KEY)"]
         E1["baseline_eval.py\n· Calls Claude API\n· Saves responses as JSONL\n· Per-record error handling"]
-        E2["compare_report.py\n· Aligns by instruction text\n· Jaccard word overlap\n· Markdown table output"]
+        E2["compare_report.py\\n· Aligns by instruction text\\n· Jaccard word overlap (default)\\n· --llm-judge: Claude 1–5 scoring\\n· Markdown table output"]
     end
 
     subgraph tests ["tests/  (43 tests, pytest)"]

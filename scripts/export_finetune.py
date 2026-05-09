@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Export a JSONL instruction dataset to fine-tuning format (OpenAI, Anthropic, or Alpaca)."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -82,6 +84,18 @@ def write_jsonl(records: list[dict], path: Path) -> None:
     log.info(f"Wrote {len(records)} records to {path}")
 
 
+def deduplicate_records(records: list[dict]) -> list[dict]:
+    """Remove records with duplicate (instruction, input) pairs, keeping the first occurrence."""
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict] = []
+    for r in records:
+        key = (r.get("instruction", ""), r.get("input", ""))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+    return deduped
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export JSONL dataset to fine-tuning format.")
     parser.add_argument("input", type=Path, help="Input JSONL file (Alpaca format)")
@@ -91,6 +105,8 @@ def main() -> None:
                         help="Validation split ratio 0.0–0.3 (default: 0 = no split)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for split (default: 42)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output files")
+    parser.add_argument("--deduplicate", action="store_true",
+                        help="Remove records with duplicate (instruction, input) pairs")
     args = parser.parse_args()
 
     if not args.input.exists():
@@ -105,6 +121,13 @@ def main() -> None:
     if not records:
         log.error("No valid records loaded")
         sys.exit(1)
+
+    if args.deduplicate:
+        before = len(records)
+        records = deduplicate_records(records)
+        dropped = before - len(records)
+        if dropped:
+            log.info(f"Removed {dropped} duplicate record(s)")
 
     formatter = FORMATTERS[args.format]
     converted = [formatter(r) for r in records]

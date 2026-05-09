@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Validate a JSONL instruction dataset for fine-tuning readiness."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging

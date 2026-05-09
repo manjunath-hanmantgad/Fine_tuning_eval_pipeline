@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Compare two eval result files and generate a before/after report."""
+"""Compare before/after evaluation responses and produce a side-by-side report."""
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -49,6 +51,50 @@ def score_record(record: dict) -> dict:
     }
 
 
+LLM_JUDGE_PROMPT = """You are an evaluator. Rate the following response to the given instruction on a scale of 1-5 for helpfulness and accuracy.
+Instruction: {instruction}
+Response: {model_response}
+Reference answer: {reference}
+Reply with only a single integer 1-5."""
+
+
+def _llm_judge_score(instruction: str, model_response: str, reference: str) -> int:
+    """Call the Anthropic API to grade a response 1–5. Returns 0 on error."""
+    try:
+        import anthropic
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=10,
+            messages=[{
+                "role": "user",
+                "content": LLM_JUDGE_PROMPT.format(
+                    instruction=instruction,
+                    model_response=model_response,
+                    reference=reference,
+                ),
+            }],
+        )
+        text = msg.content[0].text.strip()
+        return max(1, min(5, int(text)))
+    except Exception as e:
+        log.warning(f"LLM judge call failed: {e}")
+        return 0
+
+
+def score_record_llm(record: dict) -> dict:
+    instruction = record.get("instruction", "")
+    response = record.get("model_response", "")
+    reference = record.get("reference", "")
+    score = _llm_judge_score(instruction, response, reference)
+    return {
+        "score": score,
+        "length_ratio": round(len(response) / len(reference), 2) if reference else 0.0,
+        "has_content": bool(response.strip()),
+        "response_len": len(response),
+    }
+
+
 def align_pairs(before: list[dict], after: list[dict]) -> list[tuple[dict, dict]]:
     after_index = {r["instruction"]: r for r in after}
     pairs = []
@@ -65,12 +111,21 @@ def avg(values: list[float]) -> float:
     return round(sum(values) / len(values), 4) if values else 0.0
 
 
-def generate_report(pairs: list[tuple[dict, dict]], before_label: str, after_label: str) -> str:
-    b_scores = [score_record(b) for b, _ in pairs]
-    a_scores = [score_record(a) for _, a in pairs]
+def generate_report(pairs: list[tuple[dict, dict]], before_label: str, after_label: str,
+                    llm_judge: bool = False) -> str:
+    if llm_judge:
+        b_scores = [score_record_llm(b) for b, _ in pairs]
+        a_scores = [score_record_llm(a) for _, a in pairs]
+        score_label = "LLM judge (1-5)"
+        score_key = "score"
+    else:
+        b_scores = [score_record(b) for b, _ in pairs]
+        a_scores = [score_record(a) for _, a in pairs]
+        score_label = "Word overlap (Jaccard)"
+        score_key = "overlap"
 
-    b_overlap_avg = avg([s["overlap"] for s in b_scores])
-    a_overlap_avg = avg([s["overlap"] for s in a_scores])
+    b_avg = avg([s[score_key] for s in b_scores])
+    a_avg = avg([s[score_key] for s in a_scores])
     b_len_avg = avg([s["length_ratio"] for s in b_scores])
     a_len_avg = avg([s["length_ratio"] for s in a_scores])
 
@@ -80,12 +135,13 @@ def generate_report(pairs: list[tuple[dict, dict]], before_label: str, after_lab
         f"Before: `{before_label}`",
         f"After:  `{after_label}`",
         f"Matched pairs: {len(pairs)}",
+        "Scoring method: " + ("LLM-as-judge (Claude, 1-5 scale)" if llm_judge else "Jaccard word overlap"),
         "",
         "## Aggregate Scores",
         "",
         "| Metric | Before | After | Delta |",
         "|--------|--------|-------|-------|",
-        f"| Word overlap (Jaccard) | {b_overlap_avg} | {a_overlap_avg} | {a_overlap_avg - b_overlap_avg:+.4f} |",
+        f"| {score_label} | {b_avg} | {a_avg} | {a_avg - b_avg:+.4f} |",
         f"| Length ratio vs ref    | {b_len_avg} | {a_len_avg} | {a_len_avg - b_len_avg:+.4f} |",
         "",
         "## Per-Record Comparison",
@@ -96,17 +152,27 @@ def generate_report(pairs: list[tuple[dict, dict]], before_label: str, after_lab
 
     for i, ((b, a), bs, as_) in enumerate(zip(pairs, b_scores, a_scores), 1):
         inst = b["instruction"][:50].replace("|", "/")
-        delta = round(as_["overlap"] - bs["overlap"], 4)
-        lines.append(f"| {i} | {inst}… | {bs['overlap']} | {as_['overlap']} | {delta:+.4f} |")
+        delta = round(as_[score_key] - bs[score_key], 4)
+        lines.append(f"| {i} | {inst}… | {bs[score_key]} | {as_[score_key]} | {delta:+.4f} |")
 
-    lines += [
-        "",
-        "## Notes",
-        "- **Word overlap** uses Jaccard similarity between response and reference word sets.",
-        "- **Length ratio** > 1.0 means model response is longer than the reference.",
-        "- **Positive delta** indicates improvement after the change being evaluated.",
-        "- This is a lexical metric — for production, replace with a model-graded quality score.",
-    ]
+    if llm_judge:
+        lines += [
+            "",
+            "## Notes",
+            "- **LLM judge score** uses Claude to rate each response 1–5 for helpfulness and accuracy against the reference.",
+            "- A score of 0 means the API call failed for that record.",
+            "- **Length ratio** > 1.0 means model response is longer than the reference.",
+            "- **Positive delta** indicates improvement after the change being evaluated.",
+        ]
+    else:
+        lines += [
+            "",
+            "## Notes",
+            "- **Word overlap** uses Jaccard similarity between response and reference word sets.",
+            "- **Length ratio** > 1.0 means model response is longer than the reference.",
+            "- **Positive delta** indicates improvement after the change being evaluated.",
+            "- This is a lexical metric — for production, consider --llm-judge for model-graded quality scoring.",
+        ]
 
     return "\n".join(lines)
 
@@ -117,6 +183,8 @@ def main() -> None:
     parser.add_argument("after", type=Path, help="After eval results JSONL")
     parser.add_argument("--output", type=Path, default=None,
                         help="Output report path (default: outputs/compare_<timestamp>.md)")
+    parser.add_argument("--llm-judge", action="store_true",
+                        help="Use LLM-as-judge (Claude) to score responses 1–5 instead of Jaccard overlap")
     args = parser.parse_args()
 
     for p in (args.before, args.after):
@@ -136,7 +204,7 @@ def main() -> None:
         log.error("No matching records found between before and after files")
         sys.exit(1)
 
-    report = generate_report(pairs, str(args.before), str(args.after))
+    report = generate_report(pairs, str(args.before), str(args.after), llm_judge=args.llm_judge)
 
     OUTPUTS_DIR.mkdir(exist_ok=True)
     if args.output:

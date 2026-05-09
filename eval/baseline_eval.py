@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Run baseline evaluation: send instructions through a Claude model and record responses."""
+"""Run a baseline evaluation by sending records to a Claude model and saving responses."""
+
+from __future__ import annotations
 
 import argparse
 import json
