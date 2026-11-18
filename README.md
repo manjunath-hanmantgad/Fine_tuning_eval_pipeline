@@ -3,6 +3,8 @@
 Dataset preparation, quality validation, fine-tuning-ready exports, and before/after
 evaluation comparison — all local-first, no cloud dependencies required.
 
+![Fine-tuning and evaluation pipeline](docs/images/finetune-pipeline.png)
+
 ## Pipeline Overview
 
 ```mermaid
@@ -60,6 +62,8 @@ python scripts/export_finetune.py data/sample_instructions.jsonl --format openai
 ```
 
 All generated files land in `outputs/`.
+
+![Demo run and test results](docs/images/finetune-demo-run.png)
 
 ### Demo script
 
